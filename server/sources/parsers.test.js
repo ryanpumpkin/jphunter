@@ -111,6 +111,42 @@ t('冇價嘅成交紀錄唔要（冇價嘅 comp 冇用）', () => {
   assert.equal(rows.length, 0);
 });
 
+t('★ 掃街後備層都要撈到落札日期（真機實測跌落呢層）', () => {
+  // 真人喺 NAS 跑 probe 嗰陣，closedsearch 頁面完全冇 Product class，
+  // 跌咗落掃街層。嗰層以前寫死 soldAt=null，令成交日期全部變「首次見到」，
+  // 個 90 日比價窗頭三個月就係假嘅。
+  const html = `<div><div class="brand-new-layout">
+    <a href="https://page.auctions.yahoo.co.jp/jp/auction/w9988">青木陽菜 直筆サイン入り 独奏Showtime CD</a>
+    <span>4,921円</span>
+    <span>7/15 22:05</span>
+  </div></div>`;
+  const { rows, tier } = yahooClosed.parseHtml(html);
+  assert.equal(rows.length, 1, `拎到 ${rows.length} 件`);
+  assert.match(tier, /掃街/);
+  assert.equal(rows[0].price, 4921);
+  assert.ok(rows[0].soldAt, '掃街層都要撈到日期，唔可以係 null');
+  assert.equal(rows[0].soldAtExact, 1, '撈到日期就要標明準確');
+});
+
+t('掃街層真係冇日期時，soldAtExact 要老實標 0', () => {
+  const html = `<div><div class="x">
+    <a href="https://page.auctions.yahoo.co.jp/jp/auction/w7777">青木陽菜 直筆サイン</a>
+    <span>3,000円</span>
+  </div></div>`;
+  const { rows } = yahooClosed.parseHtml(html);
+  assert.equal(rows[0].soldAt, null);
+  assert.equal(rows[0].soldAtExact, 0);
+});
+
+t('標題入面啲數字唔可以被當成日期', () => {
+  const html = `<div><div class="x">
+    <a href="https://page.auctions.yahoo.co.jp/jp/auction/w5555">MyGO!!!!! 2024夏 青木陽菜 直筆サイン 5枚セット</a>
+    <span>6,000円</span>
+  </div></div>`;
+  const { rows } = yahooClosed.parseHtml(html);
+  assert.equal(rows[0].soldAt, null, `標題數字被誤當日期：rawDate=${rows[0].rawDate}`);
+});
+
 console.log('\n── 駿河屋 ──');
 
 t('中古／新品兩個價 → 取有貨嗰個較平者，兼記低 condition', () => {

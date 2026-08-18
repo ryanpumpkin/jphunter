@@ -51,6 +51,15 @@ function domTier($, rootSel, linkSel) {
   return out.length ? out : null;
 }
 
+// 由一段自由文字入面抽出「似落札日期」嗰嚿。
+// Yahoo 落札相場個終了日時多數係「1/23 22:05」（冇年份），亦見過「2025年1月23日」。
+// ★ 剪返一小段畀 parseJpDate，唔好成段長文字掉俾佢——否則佢會撈到標題入面
+//   啲無關數字（例如「MyGO!!!!! 2024夏」）當日期。
+const JP_DATE_RE = /(\d{4}[年/-]\d{1,2}[月/-]\d{1,2}日?(\s*\d{1,2}:\d{2})?|\d{1,2}[月/]\d{1,2}日?\s*\d{1,2}:\d{2})/;
+function matchJpDateText(text) {
+  return (text.match(JP_DATE_RE) || [])[0] || null;
+}
+
 function tier4($) {
   const out = [];
   const seen = new Set();
@@ -59,15 +68,25 @@ function tier4($) {
     const href = ($a.attr('href') || '').split('?')[0];
     const title = cleanText($a.text());
     if (!href || title.length < 4 || seen.has(href)) return;
-    let price = null, $node = $a;
-    for (let i = 0; i < 5 && price == null; i++) {
+    // 爬上去搵價，順手喺同一段文字度搵埋落札日期。
+    // ★ 以前呢層寫死 soldAt: null——但落札相場最大價值就係佢有真實成交日期，
+    //   冇咗就全部 fallback 做「首次見到」，個 90 日窗頭三個月係假嘅。
+    //   個日期同個價通常喺同一張卡入面，所以爬到邊搵到邊。
+    let price = null, rawDate = null, $node = $a;
+    for (let i = 0; i < 5 && (price == null || rawDate == null); i++) {
       $node = $node.parent();
       if (!$node.length) break;
-      price = parseYen(cleanText($node.text()));
+      const text = cleanText($node.text());
+      if (price == null) price = parseYen(text);
+      if (rawDate == null) rawDate = matchJpDateText(text);
     }
     if (price == null) return;
+    const soldAt = parseJpDate(rawDate);
     seen.add(href);
-    out.push({ itemKey: normalizeKey(href), title, url: normalizeKey(href), price, soldAt: null, soldAtExact: 0, rawDate: null });
+    out.push({
+      itemKey: normalizeKey(href), title, url: normalizeKey(href), price,
+      soldAt, soldAtExact: soldAt ? 1 : 0, rawDate,
+    });
   });
   return out.length ? out : null;
 }
