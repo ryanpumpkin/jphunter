@@ -1,0 +1,28 @@
+services:
+  jphunter:
+    build: .
+    image: jphunter:latest
+    container_name: jphunter
+    restart: unless-stopped
+    ports:
+      - "8101:3000"   # BeyHunter 佔咗 8100，呢個行 8101；要改就改冒號前面嗰個數字
+    env_file:
+      - .env
+    environment:
+      # 冇呢個，V8 會用成部 NAS 嘅 RAM 嚟定 heap 上限，好耐先做一次 major GC，
+      # RSS 淨係升唔跌。夾實個 heap 佢就會勤啲 GC。
+      NODE_OPTIONS: "--max-old-space-size=512"
+    # 安全網：只得一個 Playwright Chromium（Mercari 用），2g 好鬆動
+    mem_limit: 2g
+    memswap_limit: 2g   # 同 mem_limit 一樣＝唔俾用 swap，爆咗即刻 OOM-kill+restart，好過拖到成部 NAS swap thrashing
+    volumes:
+      - jphunter-data:/app/data   # SQLite DB，重起容器唔會冇咗
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+
+volumes:
+  jphunter-data:

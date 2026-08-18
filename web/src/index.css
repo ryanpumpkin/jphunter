@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* 深靛藍主題——同 BeyHunter 個深藍分得開，一眼認到係邊個 app */
+@theme {
+  --color-ink-900: #0d1117;
+  --color-ink-800: #161b26;
+  --color-ink-700: #1f2632;
+  --color-jp-red: #e4572e;
+  --color-jp-gold: #f6c453;
+}
+
+body {
+  background: var(--color-ink-900);
+  color: #e6edf3;
+  font-family: ui-sans-serif, system-ui, "Hiragino Sans", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+}

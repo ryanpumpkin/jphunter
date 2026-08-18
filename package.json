@@ -1,0 +1,28 @@
+{
+  "name": "jphunter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "日本二手市場關鍵字追蹤器——新上架推通知，兼夾埋成交價話你知抵唔抵",
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "node --env-file-if-exists=.env server/index.js",
+    "dev:web": "npm --prefix web run dev",
+    "fetch": "node --env-file-if-exists=.env server/sweep.js",
+    "probe": "node --env-file-if-exists=.env server/probe.js",
+    "test": "node server/pricing/selftest.js && node server/sources/parsers.test.js",
+    "build": "npm --prefix web run build",
+    "start": "NODE_ENV=production node --env-file-if-exists=.env server/index.js",
+    "test:pricing": "node server/pricing/selftest.js",
+    "test:parsers": "node server/sources/parsers.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "cheerio": "^1.0.0",
+    "express": "^4.21.2",
+    "playwright": "^1.61.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
