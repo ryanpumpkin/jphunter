@@ -1,0 +1,48 @@
+# CI：跑判斷邏輯同 parser 測試，兼 build 埋前端。
+#
+# ★ 呢個 CI 刻意唔會掂日本站——所有測試都係餵假數據／假 HTML 嘅，
+#   所以唔會因為 Yahoo/Mercari 改版、封 IP、或者 GitHub runner 出唔到日本
+#   而無故變紅。CI 紅＝你真係整爛咗嘢，唔係「今日個站唔畀我爬」。
+#   要驗真網站嘅 selector 係用 `node server/probe.js`（見 README），唔喺 CI 度做。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20          # 同 Dockerfile 一致
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: 裝 server deps
+        run: npm ci
+
+      # 先跑判斷邏輯——純離線、幾秒完，壞咗即刻知，唔使等裝 Chromium
+      - name: 抵買判斷測試（20 個 case）
+        run: npm run test:pricing
+
+      - name: 裝 Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Parser 測試（12 個 case）
+        run: npm run test:parsers
+
+      - name: 裝 web deps
+        run: npm ci --prefix web
+
+      - name: Build 前端
+        run: npm run build

@@ -1,5 +1,7 @@
 # JPHunter
 
+[![CI](https://github.com/ryanpumpkin/jphunter/actions/workflows/ci.yml/badge.svg)](https://github.com/ryanpumpkin/jphunter/actions/workflows/ci.yml)
+
 日本二手市場**關鍵字追蹤 + 成交價比價**通知器。
 
 打一個日文關鍵字（例：`青木陽菜 直筆`），佢會定時巡日本幾個二手平台，
@@ -135,16 +137,3 @@ CHROMIUM_PATH=/path/to/chrome    # 部機有 Chromium 但版本唔夾嗰陣用
 **唔好**為咗快而調高頻率或者加 concurrency——三個站嘅 ToS 都唔鼓勵自動化存取。
 
 刻意冇用 Mercari 內部 API（要 DPoP 簽名、條款風險高、一改就死），寧願慢啲爬公開頁。
-
-## 搬去自己嘅 repo
-
-`jphunter/` 完全自足，冇任何 `../` 引用：
-
-```bash
-# 保留 commit 歷史
-git subtree split -P jphunter -b jphunter-only
-mkdir ../jphunter && cd ../jphunter && git init && git pull ../beyhunter jphunter-only
-
-# 或者最簡單，唔要歷史
-cp -r beyhunter/jphunter ~/jphunter && cd ~/jphunter && git init && git add -A && git commit -m "init"
-```
