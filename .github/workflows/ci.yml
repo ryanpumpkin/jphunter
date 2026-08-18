@@ -35,8 +35,14 @@ jobs:
       - name: 抵買判斷測試（20 個 case）
         run: npm run test:pricing
 
+      # ★ 唔好加 --with-deps：佢會行 apt-get update，而 runner 嘅 Azure Ubuntu
+      #   mirror 成日 Ign: 晒，跟住 fallback 去 archive.ubuntu.com 就吊死——
+      #   實測吊足 13 分鐘直到 job timeout（run #1 就係咁死）。
+      #   ubuntu-latest 個 image 本身已經有 Chromium 要嘅 shared library，
+      #   所以淨係載個 browser binary 就夠，完全唔使掂 apt。
       - name: 裝 Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
+        timeout-minutes: 5
 
       - name: Parser 測試（12 個 case）
         run: npm run test:parsers
