@@ -47,10 +47,24 @@ export const EXTRACT = () => {
       seen.add(href);
       const aria = a.getAttribute('aria-label') || '';
       const cell = node.textContent.replace(/\s+/g, ' ').trim();
+      // ★ 帶價嗰個 aria-label 唔喺 <a> 身上，喺入面嗰個 thumbnail div：
+      //     <a href="/item/xxx"><div class="merItemThumbnail" role="img"
+      //        aria-label="<標題>の画像 2,222円 HK$115.21">
+      //   IP 喺日本以外，Mercari 會喺日圓後面補個換算幣值（HK$／US$…），
+      //   但日圓一直都喺度。淨係讀 <a> 就會攞到隔籬個「…のサムネイル」——
+      //   冇價，標題仲拖住條尾。所以優先搵含「円」嗰個。
+      const thumbAria = node.querySelector('[aria-label*="円"]')?.getAttribute('aria-label') || '';
       // 標題：優先 aria-label（shadow DOM 都攞到），冇就用 cell 文字
       const priceEl = node.querySelector('[data-testid="price"], .merPrice, [class*="price"]');
-      const price = yen(priceEl?.textContent, true) ?? yen(aria) ?? yen(cell);
-      let title = aria || cell;
+      const price = yen(priceEl?.textContent, true) ?? yen(aria) ?? yen(thumbAria) ?? yen(cell);
+      let title = aria || thumbAria || cell;
+      // thumbnail 個 aria-label 係「<標題>の画像 2,222円 HK$115.21」，由「の画像」起斬走。
+      // 已售出頁會喺中間多個「売り切れ」：「…の画像 売り切れ 2,580円 HK$…」。
+      // 要求「の画像」之後跟住價錢先斬，唔係淨係見到「の画像」就斬——
+      // 貨品標題本身係有可能出現呢三個字嘅。
+      title = title.replace(/の画像\s*(?:売り切れ\s*)?[\d,]+\s*円.*$/, '').trim();
+      // cell 後備嗰陣會撈到「<標題>のサムネイル…」，一樣斬走
+      title = title.replace(/のサムネイル.*$/, '').trim();
       // aria-label 通常係「<標題> ¥1,234」，剷走尾嗰個價
       title = title.replace(/[¥￥]?\s*[\d,]+\s*円?\s*$/, '').trim().slice(0, 160);
       if (!title) continue;
