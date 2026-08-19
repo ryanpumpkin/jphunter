@@ -25,7 +25,10 @@ const saveHtmlIdx = args.indexOf('--save-html');
 const saveHtmlPath = saveHtmlIdx >= 0 ? args[saveHtmlIdx + 1] : null;
 // ★ positional 要剔走 --save-html 後面嗰個路徑，唔係佢會冚埋落嚟，
 //   等陣 keyword = positional[positional.length-1] 就會攞咗個檔案路徑做關鍵字。
-const positional = args.filter((a, i) => !a.startsWith('--') && i !== saveHtmlIdx + 1);
+//   但要記住冇 --save-html 嗰陣 saveHtmlIdx 係 -1，-1+1=0 就會誤刪 index 0，
+//   即係來源名——`probe.js mercari "關鍵字"` 會變成「唔識來源」。
+const skipIdx = saveHtmlIdx >= 0 ? saveHtmlIdx + 1 : -1;
+const positional = args.filter((a, i) => !a.startsWith('--') && i !== skipIdx);
 
 const yen = n => n == null ? '—' : `¥${Math.round(n).toLocaleString('en-US')}`;
 const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n);
