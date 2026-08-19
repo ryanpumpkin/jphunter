@@ -86,15 +86,23 @@ async function run(sourceId, keyword, { limit, status }) {
   const url = `${BASE}?keyword=${encodeURIComponent(keyword)}&status=${status}&sort=created_time&order=desc`;
 
   try {
+    // hardMs 要留夠位：最壞情況 goto 45s + waitForSelector 40s + waitForTimeout 2s
+    // ＝ 87s，用 withPage 預設嘅 90s 會啱啱好撞穿條硬牆，變成明明就快撈到都畀
+    // 強制放棄。留到 120s。
     const result = await paced(sourceId, () => withPage(async page => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      await page.waitForSelector('li[data-testid="item-cell"], [data-testid="item-cell"], a[href*="/item/"]', { timeout: 20000 })
-        .catch(() => {});
+      // ★ 20s 唔夠——Mercari 間歇性 render 得慢，實測 22.9s 嗰次就撞穿咗，
+      //   三層 selector 全部 0 個節點，但個站根本冇改版（前後幾次 8–14s 就撈到）。
+      //   撞穿之後要記住，唔好靜靜雞當「個站冇貨」——真‧冇貨同等唔切
+      //   要分開報，唔係 probe 會叫你去改一啲根本冇壞嘅 selector。
+      let waitedOut = false;
+      await page.waitForSelector('li[data-testid="item-cell"], [data-testid="item-cell"], a[href*="/item/"]', { timeout: 40000 })
+        .catch(() => { waitedOut = true; });
       await page.waitForTimeout(2000);
       const body = await page.evaluate(() => document.body.innerText.slice(0, 3000));
       const extracted = await page.evaluate(EXTRACT);
-      return { ...extracted, body };
-    }));
+      return { ...extracted, body, waitedOut };
+    }, { hardMs: 120000 }));
 
     if (!result.rows.length && BLOCK_RE.test(result.body || '')) {
       const ms = noteBlocked(sourceId);
@@ -117,7 +125,9 @@ async function run(sourceId, keyword, { limit, status }) {
     }));
 
     if (rows.length) noteOk(sourceId);
-    return { rows, tier: result.tier, status: rows.length ? 'ok' : 'empty', diag: result.diag };
+    // 等唔切 → 'timeout'（個站慢／SPA 未 render 完），唔係 'empty'（真係搵唔到貨）
+    const emptyStatus = result.waitedOut ? 'timeout' : 'empty';
+    return { rows, tier: result.tier, status: rows.length ? 'ok' : emptyStatus, diag: result.diag };
   } catch (err) {
     return { rows: [], tier: null, status: 'error', diag: [errReason(err)] };
   }

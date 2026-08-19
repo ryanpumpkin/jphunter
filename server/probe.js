@@ -51,6 +51,11 @@ function printDiag(src, result) {
   for (const line of result.diag || []) console.log(`  ${line}`);
   if (result.status === 'login') {
     console.log(`\n→ 呢個來源要登入，唔係改版。成交價會淨靠另一個來源頂住。`);
+  } else if (result.status === 'timeout') {
+    console.log(`
+→ 等唔切，唔係改版。三層 selector 搵唔到嘢係因為個頁未 render 完就到鐘，
+   唔好走去改 selector——佢哋好可能完全冇壞。
+   下一轉多數會正常。次次都咁就先至考慮再調長個 waitForSelector 上限。`);
   } else if (result.status === 'challenge') {
     console.log(`
 → 站方開咗 Cloudflare 人機驗證（唔係改版，亦唔係你條線有問題）。
