@@ -76,6 +76,10 @@ export const EXTRACT = () => {
   return { rows: [], tier: null, diag };
 };
 
+// 捲幾多屏先放棄。實測捲 2 次就由 15 件填到 40 件，5 次係好鬆動嘅上限。
+const MAX_SCROLLS = 5;
+const SCROLL_SETTLE_MS = 1200;
+
 // 反爬蟲／人機驗證嘅招牌字眼
 const BLOCK_RE = /Access Denied|ご迷惑をおかけ|しばらく時間をおいて|アクセスが制限|captcha|セキュリティ上の理由/i;
 
@@ -99,6 +103,30 @@ async function run(sourceId, keyword, { limit, status }) {
       await page.waitForSelector('li[data-testid="item-cell"], [data-testid="item-cell"], a[href*="/item/"]', { timeout: 40000 })
         .catch(() => { waitedOut = true; });
       await page.waitForTimeout(2000);
+
+      // ★ Mercari 用 viewport 虛擬化：<ul> 一早開好 40 個 <li data-testid=item-cell>，
+      //   但只有捲到入視窗嗰啲先填內容。1440x900 嘅 viewport 啱啱好見到 15 個，
+      //   所以唔捲就永遠只攞到 15 件——實測 40 件入面漏 25 件（62%）。
+      //
+      //   ⚠️ 停止條件一定要數「有 /item/ 連結嘅唯一格」，唔可以數 cell：
+      //      cells 由頭到尾都係 40（位一早開好），攞嚟做判斷會即刻當「冇再多」
+      //      就 break，個 fix 靜靜雞失效。我第一版就係咁錯咗。
+      //
+      //   捲動只係觸發 render，內容早喺 page data 入面，唔會多發請求，
+      //   所以對人哋伺服器零額外負擔。夠 limit 就即刻收手。
+      const countLinked = () => page.evaluate(() => new Set(
+        [...document.querySelectorAll('li[data-testid="item-cell"] a[href*="/item/"], [data-testid="item-cell"] a[href*="/item/"]')]
+          .map(a => a.href.split('?')[0]),
+      ).size);
+      let linked = await countLinked();
+      for (let i = 0; i < MAX_SCROLLS && linked < limit; i++) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight * 0.9));
+        await page.waitForTimeout(SCROLL_SETTLE_MS);
+        const now = await countLinked();
+        if (now <= linked) break;   // 真係冇再多先收手
+        linked = now;
+      }
+
       const body = await page.evaluate(() => document.body.innerText.slice(0, 3000));
       const extracted = await page.evaluate(EXTRACT);
       return { ...extracted, body, waitedOut };
