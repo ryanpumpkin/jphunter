@@ -6,6 +6,10 @@ import { chromium } from 'playwright';
 let browser = null;
 let launching = null;
 
+// ctx.close() 等幾耐就放棄。留咗個 context 唔閂會漏少少記憶體，
+// 但 browser 本身有 mem_limit 兜底，好過成條 sweep 卡死。
+const CLOSE_TIMEOUT_MS = 5000;
+
 export async function getBrowser() {
   if (browser?.isConnected()) return browser;
   if (launching) return launching;
@@ -68,7 +72,16 @@ export async function withPage(fn, { timeoutMs = 45000, hardMs = timeoutMs * 2 }
       clearTimeout(hardTimer);
     }
   } finally {
-    await ctx.close().catch(() => {});
+    // ★ ctx.close() 自己都會 hang——個頁卡死嗰陣（Cloudflare 驗證頁嗰類永遠
+    //   唔會載完嘅嘢），Playwright 收唔返個 context，呢句 await 就吊死喺度。
+    //   咁樣上面個硬時限等於冇用：race 準時 reject 咗，但 finally 返唔到，
+    //   成個 call 照樣卡住。實測撞過兩次，各卡 36 分鐘同 40 分鐘先要人手 pkill。
+    //   所以連 close 都要限時，逾時就唔理佢——寧願漏一個 context 都好過
+    //   成條 sweep 靜靜雞死咗（冇 error、冇警報，你淨係覺得「好耐冇通知」）。
+    await Promise.race([
+      ctx.close().catch(() => {}),
+      new Promise(resolve => setTimeout(resolve, CLOSE_TIMEOUT_MS)),
+    ]);
   }
 }
 
