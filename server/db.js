@@ -236,6 +236,10 @@ export const compRunsAll = db.prepare(`SELECT * FROM comp_runs ORDER BY query`);
 
 // ── snapshot diff：回傳 true = 新見到（用嚟觸發通知）──
 const snapshotHas = db.prepare(`SELECT 1 FROM snapshots WHERE adapter=? AND item_key=?`);
+const snapshotAnyFor = db.prepare(`SELECT 1 FROM snapshots WHERE adapter=? LIMIT 1`);
+// 呢個 adapter（w<id>:<來源>）有冇見過任何嘢。用嚟分辨「條 watch 第一次跑」
+// 同「條 watch 跑咗好耐，但呢個來源啱啱先加入」——後者一樣要靜靜雞收錄先。
+export const seenAnyItem = adapter => !!snapshotAnyFor.get(adapter);
 const snapshotAdd = db.prepare(`INSERT OR IGNORE INTO snapshots (adapter, item_key) VALUES (?, ?)`);
 export function isNewItem(adapter, itemKey) {
   const seen = snapshotHas.get(adapter, itemKey);

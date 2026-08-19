@@ -1,7 +1,7 @@
 // 中間層：sources 出嚟嘅 rows → 新舊 diff → 抵買判斷 → 寫 DB → 派通知。
 // sources/* 係純抓取（唔掂 DB），呢度先係唯一會寫嘢同 send 嘢嘅地方。
 import {
-  isNewItem, insertListing, updateListingPrice, reportSourceHealth,
+  isNewItem, seenAnyItem, insertListing, updateListingPrice, reportSourceHealth,
   insertComp, compsForQuery, compCount, reportCompRun,
   watchTouchRun, watchTouchComp, watchMarkPrimed,
 } from './db.js';
@@ -107,6 +107,8 @@ export async function sweepWatch(watch) {
   const note = staleNote(watch);
   let found = 0, notified = 0;
   const perSource = [];
+  // 今轉有邊啲來源係第一次見（靜靜雞收錄咗，冇通知）——用嚟出返個交代
+  const primedSources = [];
 
   for (const src of sourcesFor(watch)) {
     let result;
@@ -118,17 +120,26 @@ export async function sweepWatch(watch) {
     }
     perSource.push({ id: src.id, n: result.rows.length, status: result.status, reason: result.diag?.[0] || null });
 
+    const snapKey = `w${watch.id}:${src.id}`;
+    // ★ 靜默收錄要按「來源」計，唔可以淨係睇 watch.primed：
+    //   條 watch 跑咗一排（primed=1）之後先加多個來源，嗰個來源成頁貨
+    //   對 snapshots 嚟講全部係「未見過」，照推就即刻幾十條洗你版——
+    //   同開新 watch 嗰個情況一模一樣，所以一樣要先靜靜雞收錄一輪。
+    //   ⚠️ 一定要喺 row loop 之前 check，isNewItem() 會即刻寫低 snapshot。
+    const srcPriming = priming || !seenAnyItem(snapKey);
+    let srcAbsorbed = 0;
+
     for (const row of result.rows) {
       if (!row.url || row.price == null) continue;
       if (excluded(row.title, watch.exclude)) continue;
 
-      const snapKey = `w${watch.id}:${src.id}`;
       if (!isNewItem(snapKey, row.itemKey)) {
         // 見過嘅貨：拍賣價會升，同步返個現價（feed 顯示用），但唔再通知
         if (row.price != null) updateListingPrice.run(row.price, watch.id, src.id, row.itemKey);
         continue;
       }
       found++;
+      if (srcPriming) srcAbsorbed++;
 
       const listing = {
         source: src.id,
@@ -160,10 +171,10 @@ export async function sweepWatch(watch) {
         comp_p75: v.p75 ?? null,
         comp_basis: v.basis ?? null,
         comp_window: v.window ?? null,
-        notified: priming ? 0 : 1,
+        notified: srcPriming ? 0 : 1,
       });
 
-      if (res.changes > 0 && !priming) {
+      if (res.changes > 0 && !srcPriming) {
         notified++;
         // 唔 await：通知隊列自己逐條慢慢送，唔好拖住抓取
         notifyListing({
@@ -178,6 +189,11 @@ export async function sweepWatch(watch) {
         });
       }
     }
+
+    // 淨係「事後加來源」先報——開新 watch 嗰個 case 下面有得講，唔好報兩次
+    if (srcPriming && !priming && srcAbsorbed > 0) {
+      primedSources.push({ id: src.id, n: srcAbsorbed });
+    }
   }
 
   watchTouchRun.run(watch.id);
@@ -189,6 +205,11 @@ export async function sweepWatch(watch) {
     }
   } else if (found) {
     console.log(`[sweep] 「${watch.keyword}」新貨 ${found} 件，推咗 ${notified} 條通知`);
+  }
+
+  for (const p of primedSources) {
+    console.log(`[sweep] 「${watch.keyword}」新加來源 ${p.id}：收錄 ${p.n} 件現有貨（唔通知）`);
+    alertSystem(`「${watch.keyword}」加咗來源 ${p.id}：收錄咗 ${p.n} 件現有貨（唔會補推），之後有新上架先通知你。`);
   }
   return { found, notified, priming, perSource };
 }

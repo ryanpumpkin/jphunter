@@ -194,6 +194,34 @@ await ta('shadow DOM 攞唔到字時，靠 aria-label 後備抽到標題同價',
   assert.equal(out.rows[0].price, 3800);
 });
 
+await ta('價喺 thumbnail div 個 aria-label，唔喺 <a> 身上（在賣＋已售出）', async () => {
+  // 真實結構：<a> 自己冇 aria-label（或者係冇價嘅「…のサムネイル」），
+  // 帶價嗰個喺入面個 thumbnail div。IP 喺日本以外仲會補多個換算幣值。
+  const html = `<ul>
+    <li data-testid="item-cell">
+      <a href="https://jp.mercari.com/item/m555" aria-label="青木陽菜 衝動ROCK直筆サイン入りミニブロマイドのサムネイル">
+        <div class="merItemThumbnail" role="img" aria-label="青木陽菜 衝動ROCK直筆サイン入りミニブロマイドの画像 2,222円 HK$115.21"></div>
+      </a>
+    </li>
+    <li data-testid="item-cell">
+      <a href="https://jp.mercari.com/item/m666">
+        <div class="merItemThumbnail" role="img" aria-label="青木陽菜 独奏showtime 直筆サイン入りCDの画像 売り切れ 2,580円 HK$133.77"></div>
+      </a>
+    </li>
+  </ul>`;
+  const out = await withPage(async page => {
+    await page.setContent(html);
+    return page.evaluate(EXTRACT);
+  });
+  assert.equal(out.rows.length, 2, `拎到 ${out.rows.length} 件：${JSON.stringify(out.diag)}`);
+  // 要攞日圓，唔好攞咗個 HK$ 換算值
+  assert.equal(out.rows[0].price, 2222);
+  assert.equal(out.rows[0].title, '青木陽菜 衝動ROCK直筆サイン入りミニブロマイド', '「の画像…円 HK$…」條尾要斬走');
+  // 已售出頁喺中間多個「売り切れ」
+  assert.equal(out.rows[1].price, 2580);
+  assert.equal(out.rows[1].title, '青木陽菜 独奏showtime 直筆サイン入りCD', '「売り切れ」都要一齊斬走');
+});
+
 await ta('有 data-testid=price 就用返個 element 個價', async () => {
   const html = `<li data-testid="item-cell">
     <a href="https://jp.mercari.com/item/m333" aria-label="青木陽菜 直筆サイン"></a>
