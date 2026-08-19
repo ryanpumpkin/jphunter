@@ -116,7 +116,13 @@ export async function search(keyword, { limit = 30 } = {}) {
     if (!res.ok) {
       if (res.status === 403 || res.status === 429) {
         const ms = noteBlocked(id);
-        return { rows: [], tier: null, status: 'blocked', diag: [`${httpReason(res)}——疑似俾人擋，冷卻 ${Math.round(ms / 60000)} 分鐘`] };
+        // Cloudflare 挑戰同單純被擋要分開講：前者係站方擺明唔畀自動化入，
+        // 換 IP／改 header／等冷卻通通冇用，唔好叫人白費功夫。
+        const cf = res.headers.get('cf-mitigated') === 'challenge' || !!res.headers.get('cf-ray');
+        const why = cf
+          ? `${httpReason(res)}——Cloudflare 人機驗證（cf-mitigated: challenge），冷卻 ${Math.round(ms / 60000)} 分鐘`
+          : `${httpReason(res)}——疑似俾人擋，冷卻 ${Math.round(ms / 60000)} 分鐘`;
+        return { rows: [], tier: null, status: cf ? 'challenge' : 'blocked', diag: [why] };
       }
       return { rows: [], tier: null, status: 'error', diag: [httpReason(res)] };
     }

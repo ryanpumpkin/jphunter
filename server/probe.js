@@ -51,6 +51,14 @@ function printDiag(src, result) {
   for (const line of result.diag || []) console.log(`  ${line}`);
   if (result.status === 'login') {
     console.log(`\n→ 呢個來源要登入，唔係改版。成交價會淨靠另一個來源頂住。`);
+  } else if (result.status === 'challenge') {
+    console.log(`
+→ 站方開咗 Cloudflare 人機驗證（唔係改版，亦唔係你條線有問題）。
+   實測過：換 IP、加齊真瀏覽器 header、用 Playwright 開真 Chromium 等足 60 秒，
+   個頁都一直卡喺「しばらくお待ちください...」，一件貨都攞唔到。
+   呢個係站方擺明唔畀自動化程式入，唔好嘥時間換出口或者砌 header——
+   要過就得靠偽造瀏覽器指紋嗰類嘢，條款風險高，本專案唔行呢條路。
+   做法：當呢個來源唔存在，靠返其他來源。佢日站方收返個驗證就自動恢復。`);
   } else if (result.status === 'blocked') {
     console.log(`\n→ 俾人擋咗（唔係改版）。等冷卻完再試，或者換個網絡出口。`);
   } else if (result.status === 'error') {

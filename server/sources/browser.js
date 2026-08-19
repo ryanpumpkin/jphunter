@@ -33,7 +33,11 @@ export async function getBrowser() {
 }
 
 // 開一個乾淨 context，image/media/font 一律 abort（慳頻寬兼快好多）
-export async function withPage(fn, { timeoutMs = 45000 } = {}) {
+// hardMs：包住成個操作嘅硬性總時限。★ 唔可以淨係靠 page.setDefaultTimeout()／
+// goto 個 timeout——實測駿河屋嘅 Cloudflare 驗證頁永遠唔會 fire domcontentloaded，
+// 撞到嗰陣 goto 連自己個 60s timeout 都唔會觸發，成個 call 卡足 9 分鐘要人手剷。
+// 一條 sweep 咁樣吊死係靜靜雞死：冇 error、冇警報，你淨係會覺得「好耐冇通知」。
+export async function withPage(fn, { timeoutMs = 45000, hardMs = timeoutMs * 2 } = {}) {
   const b = await getBrowser();
   if (!b) throw new Error('Chromium 未裝／起唔到');
   const ctx = await b.newContext({
@@ -49,7 +53,20 @@ export async function withPage(fn, { timeoutMs = 45000 } = {}) {
       const t = route.request().resourceType();
       return ['image', 'media', 'font'].includes(t) ? route.abort() : route.continue();
     });
-    return await fn(page);
+    let hardTimer;
+    try {
+      return await Promise.race([
+        fn(page),
+        new Promise((_, reject) => {
+          hardTimer = setTimeout(
+            () => reject(new Error(`成個抓取行咗 ${Math.round(hardMs / 1000)}s 都未完，強制放棄（個頁可能永遠唔會載完）`)),
+            hardMs,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(hardTimer);
+    }
   } finally {
     await ctx.close().catch(() => {});
   }
