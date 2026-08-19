@@ -166,10 +166,11 @@ export const watchSummary = db.prepare(`
   SELECT w.*,
     (SELECT COUNT(*) FROM listings l
       WHERE l.watch_id = w.id AND l.found_at > datetime('now','-24 hours')) AS hits_24h,
-    (SELECT COUNT(*) FROM listings l WHERE l.watch_id = w.id) AS hits_total,
-    (SELECT COUNT(*) FROM sold_comps c
-      WHERE c.query = COALESCE(NULLIF(w.comp_keyword,''), w.keyword)
-        AND c.sold_at > datetime('now','-90 days')) AS comp_n
+    (SELECT COUNT(*) FROM listings l WHERE l.watch_id = w.id) AS hits_total
+    -- ★ comp_n 唔喺呢度計。sold_comps.query 存嘅係 canonicalQuery() 正規化後
+    --   （細楷／NFKC／剷符號）嘅字串，但 w.keyword 係原文——「BX-09」對唔到
+    --   「bx-09」，個 UI 就會喺明明有 29 件成交紀錄嗰陣話你「仲未收到成交價」。
+    --   SQLite 呢邊做唔到同一套正規化，所以交返畀 listWatches() 用 JS 計。
   FROM watches w ORDER BY w.id
 `);
 

@@ -1,6 +1,7 @@
 // 追蹤 CRUD ＋ 驗證。系統邊界，驗嚴啲。
-import { watchList, watchGet, watchInsert, watchUpdate, watchSummary, deleteWatchCascade, watchByKeyword } from './db.js';
+import { watchList, watchGet, watchInsert, watchUpdate, watchSummary, deleteWatchCascade, watchByKeyword, compCount } from './db.js';
 import { SOURCE_IDS } from './sources/index.js';
+import { canonicalQuery } from './pricing/normalize.js';
 
 const MAX_WATCHES = 50;
 
@@ -46,6 +47,11 @@ export function listWatches() {
   return watchSummary.all().map(w => ({
     ...w,
     sources: w.sources ? JSON.parse(w.sources) : null,
+    // 要用同 harvestComps／compsFor 一模一樣嘅 canonical query，唔係就對唔到數
+    comp_n: compCount.get({
+      query: canonicalQuery(w.comp_keyword?.trim() || w.keyword),
+      since: '-90 days',
+    })?.n ?? 0,
   }));
 }
 
