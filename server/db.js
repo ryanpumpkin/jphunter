@@ -133,6 +133,9 @@ try { db.exec(`ALTER TABLE watches ADD COLUMN primed INTEGER NOT NULL DEFAULT 0`
 // AI 標題分類結果（classify.js）。每件貨只跑一次，之後永久重用——
 // 冇 cache 就會每轉 sweep 都推成百件貨入 LLM，15 分鐘一轉根本跑唔切。
 // cls_at 為 NULL＝未分類過；venue 為 NULL 而 cls_at 有值＝分類過但冇場次。
+// 最近一轉 sweep 喺各站見到幾多件在售（唔理新舊）。用嚟分「靜市」同「壞咗」：
+// 冇新貨 + 見到 30 件＝正常冇人上新貨；冇新貨 + 見到 0 件＝抓唔到嘢，要查。
+try { db.exec(`ALTER TABLE watches ADD COLUMN last_seen_n INTEGER`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE sold_comps ADD COLUMN venue TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE sold_comps ADD COLUMN qty INTEGER`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE sold_comps ADD COLUMN cls_at TEXT`); } catch { /* already exists */ }
@@ -151,7 +154,9 @@ export const watchUpdate = db.prepare(`
                      sources=@sources, enabled=@enabled, interval_s=@interval_s
   WHERE id = @id
 `);
-export const watchTouchRun = db.prepare(`UPDATE watches SET last_run_at = datetime('now') WHERE id = ?`);
+export const watchTouchRun = db.prepare(`
+  UPDATE watches SET last_run_at = datetime('now'), last_seen_n = @seen WHERE id = @id
+`);
 export const watchTouchComp = db.prepare(`UPDATE watches SET last_comp_at = datetime('now') WHERE id = ?`);
 export const watchMarkPrimed = db.prepare(`UPDATE watches SET primed = 1 WHERE id = ?`);
 
@@ -172,7 +177,10 @@ export const watchSummary = db.prepare(`
   SELECT w.*,
     (SELECT COUNT(*) FROM listings l
       WHERE l.watch_id = w.id AND l.found_at > datetime('now','-24 hours')) AS hits_24h,
-    (SELECT COUNT(*) FROM listings l WHERE l.watch_id = w.id) AS hits_total
+    (SELECT COUNT(*) FROM listings l WHERE l.watch_id = w.id) AS hits_total,
+    -- 最後一件新貨幾時。UI 用嚟講「幾多個鐘冇新貨」——問得最多嘅問題就係
+    -- 「點解咁耐冇嘢」，冇呢個數就要開 DB 先答到。
+    (SELECT MAX(l.found_at) FROM listings l WHERE l.watch_id = w.id) AS last_hit_at
     -- ★ comp_n 唔喺呢度計。sold_comps.query 存嘅係 canonicalQuery() 正規化後
     --   （細楷／NFKC／剷符號）嘅字串，但 w.keyword 係原文——「BX-09」對唔到
     --   「bx-09」，個 UI 就會喺明明有 29 件成交紀錄嗰陣話你「仲未收到成交價」。

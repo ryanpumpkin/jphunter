@@ -196,7 +196,8 @@ export async function sweepWatch(watch) {
     }
   }
 
-  watchTouchRun.run(watch.id);
+  // 見到幾多件在售（唔理新舊）——冇新貨嗰陣，呢個數話你知係靜市定係抓唔到嘢
+  watchTouchRun.run({ id: watch.id, seen: perSource.reduce((a, p) => a + p.n, 0) });
   if (priming) {
     watchMarkPrimed.run(watch.id);
     console.log(`[sweep] 「${watch.keyword}」首輪收錄 ${found} 件現有貨（唔通知），之後先算新上架`);
