@@ -76,6 +76,17 @@ export function primeComps(watchId) {
   if (!compQueue.includes(watchId)) compQueue.unshift(watchId);
 }
 
+// ★ 兩種時間格式：SQLite 個 datetime('now') 出 'YYYY-MM-DD HH:MM:SS'（冇時區，係 UTC，
+//   要自己補 'Z'）；但 comp_runs.last_ok 存嘅係 new Date().toISOString()，本身已經有 'Z'。
+//   一律 + 'Z' 就會變 '…263ZZ' → Date.parse 回 NaN → 之後所有比較都係 false，
+//   即係「永遠唔算過期、亦永遠唔會被揀做最舊」——成交價自動更新靜靜雞死咗，冇 error 冇警報。
+//   parse 唔到就當 0（＝好耐冇收過），寧願收多次都好過永遠唔收。
+function parseUtc(s) {
+  if (!s) return 0;
+  const t = Date.parse(/[TZ]/.test(s) ? s : s + 'Z');
+  return Number.isFinite(t) ? t : 0;
+}
+
 // 揀下一條要收成交價嘅 watch：插隊優先，否則揀最耐冇收過嗰條
 function nextCompWatch() {
   while (compQueue.length) {
@@ -86,7 +97,7 @@ function nextCompWatch() {
   let oldest = null, oldestAt = Infinity;
   for (const w of watchListEnabled.all()) {
     const run = compRunGet.get(compQueryOf(w));
-    const at = run?.last_ok ? Date.parse(run.last_ok + 'Z') : 0;
+    const at = parseUtc(run?.last_ok);
     if (Date.now() - at < COMP_STALE_MS) continue;
     if (at < oldestAt) { oldest = w; oldestAt = at; }
   }
