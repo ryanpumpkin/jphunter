@@ -130,6 +130,12 @@ CREATE INDEX IF NOT EXISTS idx_notify_log ON notify_log (created_at DESC);
 // migration：舊 DB 加欄位（已存在會 throw，照吞）——同 BeyHunter 一樣嘅土炮做法
 try { db.exec(`ALTER TABLE watches ADD COLUMN comp_keyword TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE watches ADD COLUMN primed INTEGER NOT NULL DEFAULT 0`); } catch { /* already exists */ }
+// AI 標題分類結果（classify.js）。每件貨只跑一次，之後永久重用——
+// 冇 cache 就會每轉 sweep 都推成百件貨入 LLM，15 分鐘一轉根本跑唔切。
+// cls_at 為 NULL＝未分類過；venue 為 NULL 而 cls_at 有值＝分類過但冇場次。
+try { db.exec(`ALTER TABLE sold_comps ADD COLUMN venue TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE sold_comps ADD COLUMN qty INTEGER`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE sold_comps ADD COLUMN cls_at TEXT`); } catch { /* already exists */ }
 
 // ── watches ──
 export const watchList = db.prepare(`SELECT * FROM watches ORDER BY id`);
@@ -213,11 +219,23 @@ export const insertComp = db.prepare(`
   ON CONFLICT(source, item_key) DO NOTHING
 `);
 export const compsForQuery = db.prepare(`
-  SELECT title, norm_title, url, price, source, sold_at, sold_at_exact
+  SELECT title, norm_title, url, price, source, sold_at, sold_at_exact, venue
   FROM sold_comps
   WHERE query = @query AND sold_at > datetime('now', @since)
   ORDER BY sold_at DESC
 `);
+// ── AI 分類 cache ──
+export const compsNeedingClassify = db.prepare(`
+  SELECT id, title FROM sold_comps WHERE cls_at IS NULL ORDER BY id LIMIT @limit
+`);
+export const compSetClassification = db.prepare(`
+  UPDATE sold_comps SET venue = @venue, qty = @qty, cls_at = datetime('now') WHERE id = @id
+`);
+// 分類失敗都要記低 cls_at，唔係就會每次都重試同一批爛數據，永遠卡住。
+export const compMarkClassified = db.prepare(`
+  UPDATE sold_comps SET cls_at = datetime('now') WHERE id = @id AND cls_at IS NULL
+`);
+
 export const compCount = db.prepare(`
   SELECT COUNT(*) AS n FROM sold_comps WHERE query = @query AND sold_at > datetime('now', @since)
 `);

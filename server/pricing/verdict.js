@@ -18,6 +18,23 @@ const LOOSE_SIM = 0.18;
 // 溝埋一齊有 ¥300–800 嘅系統性偏差。夠樣本就分開比，唔夠先溝，並且要講明。
 const SAME_SOURCE = { 'yahoo-auction': 'yahoo-closed', mercari: 'mercari-sold' };
 
+// ── 場次限定 ──
+// 同一個關鍵字入面，場次限定貨貴普通貨 2–3 倍（實測東京 avg ¥10,575 vs 千葉 ¥5,024）。
+// 溝埋一齊計兩邊都錯：判限定貨嗰陣會報「超抵」，判普通貨嗰陣個中位數畀限定貨扯高。
+// 成交紀錄邊件係限定貨，由 classify.js（本地 LLM）寫喺 sold_comps.venue。
+// 新上架冇分類過，所以反過嚟用成交紀錄學返嚟嘅地名砌詞表去對——
+// 純字串比對，唔使等 LLM，pickCohort 保持係純函數（selftest 離線行得到）。
+export function venueOf(title, comps) {
+  const norm = normalizeTitle(title);
+  let best = null;
+  for (const c of comps) {
+    if (!c.venue) continue;
+    if (!(title.includes(c.venue) || norm.includes(normalizeTitle(c.venue)))) continue;
+    if (!best || c.venue.length > best.length) best = c.venue;   // 「東京ドーム」贏「東京」
+  }
+  return best;
+}
+
 export const VERDICTS = {
   steal:   { emoji: '🔥', word: '超抵', tone: 'good' },
   deal:    { emoji: '✅', word: '抵',   tone: 'good' },
@@ -58,8 +75,14 @@ export function pickCohort(listing, comps, watch) {
   const lt = tokensOf(listing.title);
   const kwTokens = tokensOf(watch?.comp_keyword || watch?.keyword || '');
   const sameSrc = SAME_SOURCE[listing.source];
+  const venue = venueOf(listing.title, comps);
 
-  const scored = comps.map(c => {
+  // ★ 判普通貨（listing 冇場次）：所有有場次嘅成交紀錄一律剔走。
+  //   呢步唔受樣本限制——就算得三件限定貨，剔走佢哋都即刻令個中位數啱返，
+  //   而剩返嘅普通貨仍然係大多數，唔會因為咁而跌落「樣本不足」。
+  const pool = venue ? comps : comps.filter(c => !c.venue);
+
+  const scored = pool.map(c => {
     const norm = c.norm_title || normalizeTitle(c.title);
     return {
       ...c,
@@ -73,6 +96,11 @@ export function pickCohort(listing, comps, watch) {
   const loose = scored.filter(c => c.sim >= LOOSE_SIM);
 
   const tiers = [
+    // 同場次行喺最前：場次溢價大過款式差異，寧願款式放寬都要同場次比
+    venue && ['venue-same', strict.filter(c => c.venue === venue), MIN_SAMPLES],
+    venue && ['venue-loose', loose.filter(c => c.hasKw && c.venue === venue), MIN_SAMPLES],
+    // 同場次唔夠樣本先跌落下面呢幾層——嗰陣會同普通貨比，限定貨會顯得偏貴。
+    // 呢個方向係安全嘅：報「偏貴」最多錯過一單，報「超抵」係叫你買貴貨。
     sameSrc && ['strict-same', strict.filter(c => c.source === sameSrc), SAME_SOURCE_MIN],
     ['strict-pooled', strict, MIN_SAMPLES],
     sameSrc && ['loose-same', loose.filter(c => c.source === sameSrc), SAME_SOURCE_MIN],
@@ -81,12 +109,15 @@ export function pickCohort(listing, comps, watch) {
   ].filter(Boolean);
 
   for (const [basis, rows, need] of tiers) {
-    if (rows.length >= need) return { basis, rows };
+    if (rows.length >= need) return { basis, rows, venue };
   }
-  return { basis: 'none', rows: scored };
+  return { basis: 'none', rows: scored, venue };
 }
 
+// 值可以係 string，亦可以係 (venue) => string
 const BASIS_NOTE = {
+  'venue-same': v => `對比基準：同場次（${v}）限定成交——限定貨貴普通貨幾倍，唔會同普通貨溝埋計`,
+  'venue-loose': v => `對比基準：同場次（${v}）成交，但同款判斷放寬咗，可能溝咗其他版本`,
   'strict-same': null,                                        // 最靚嘅情況，唔使解釋
   'strict-pooled': '對比基準：Yahoo＋Mercari 成交溝埋計（運費慣例唔同，有少少偏差）',
   'loose-same': '對比基準：同款判斷放寬咗，可能溝咗其他版本',
@@ -100,12 +131,12 @@ const yen = n => `¥${Math.round(n).toLocaleString('en-US')}`;
 // 回傳 { verdict, ratio, n, p25, p50, p75, basis, window, judged_price, lines[] }
 // lines 係通知／UI 直接用嘅解釋，已經寫好廣東話。
 export function judge(listing, comps, watch, { windowDays = WINDOW_DAYS } = {}) {
-  const { basis, rows } = pickCohort(listing, comps, watch);
+  const { basis, rows, venue } = pickCohort(listing, comps, watch);
   const { price, label } = judgedPrice(listing);
 
   if (basis === 'none' || rows.length < MIN_SAMPLES) {
     return {
-      verdict: 'unknown', ratio: null, basis: 'none', window: windowDays,
+      verdict: 'unknown', ratio: null, basis: 'none', window: windowDays, venue,
       n: rows.length, p25: null, p50: null, p75: null, judged_price: price,
       lines: [`❓ 樣本不足（近 ${windowDays} 日只搵到 ${rows.length} 件成交）——暫時判斷唔到抵唔抵`],
     };
@@ -113,9 +144,10 @@ export function judge(listing, comps, watch, { windowDays = WINDOW_DAYS } = {}) 
 
   const s = summarize(rows);
   const base = {
-    basis, window: windowDays, n: s.n, p25: s.p25, p50: s.p50, p75: s.p75, judged_price: price,
+    basis, venue, window: windowDays, n: s.n, p25: s.p25, p50: s.p50, p75: s.p75, judged_price: price,
   };
-  const note = BASIS_NOTE[basis];
+  const raw = BASIS_NOTE[basis];
+  const note = typeof raw === 'function' ? raw(venue) : raw;
 
   // 競投中、冇即決：唔比，改為畀個出價上限
   if (price == null) {

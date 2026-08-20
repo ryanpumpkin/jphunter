@@ -156,6 +156,39 @@ t('同來源夠樣本 → 用 strict-same，唔溝兩站', () => {
   assert.equal(basis, 'strict-same', `拎到 ${basis}`);
 });
 
+// ── 場次限定（venue）──
+// comps() 造嘅紀錄冇 venue 欄位，等同「分類完發現冇場次」＝普通貨。
+const venueComps = (prices, venue, title = null) =>
+  comps(prices, title || `青木陽菜 直筆サイン入りチェキ ${venue}限定`).map(c => ({ ...c, venue }));
+
+t('判普通貨：限定貨成交一律剔走，唔會拉高中位數', () => {
+  const rows = [...comps([5000, 5100, 5200, 4900, 5300]), ...venueComps([20000, 21000, 19000], '東京')];
+  const r = judge(listing({ price: 5100 }), rows, watch);
+  assert.equal(r.venue, null, '普通貨唔應該認到場次');
+  assert.equal(r.n, 5, `剩返 5 件普通貨，拎到 ${r.n}`);
+  assert.ok(r.p50 < 6000, `中位數應該係普通貨嗰邊，拎到 ${r.p50}`);
+  assert.equal(r.verdict, 'fair', `貼住普通貨中位就係 fair，拎到 ${r.verdict}`);
+});
+
+t('判限定貨：認到場次，同同場次比', () => {
+  const rows = [...comps([5000, 5100, 5200, 4900, 5300]), ...venueComps([20000, 21000, 19000, 20500, 19500], '東京')];
+  const l = listing({ price: 20000, title: '青木陽菜 直筆サイン入りチェキ 東京限定' });
+  const r = judge(l, rows, watch);
+  assert.equal(r.venue, '東京');
+  assert.match(r.basis, /^venue-/, `應該用同場次對比群，拎到 ${r.basis}`);
+  assert.equal(r.n, 5, `淨係用東京嗰 5 件，拎到 ${r.n}`);
+  assert.equal(r.verdict, 'fair', `同場次同價就係 fair，拎到 ${r.verdict}`);
+  assert.match(r.lines.join('\n'), /同場次/, '用咗場次群就要講明');
+});
+
+t('限定貨樣本唔夠 → 跌返落普通群，會報偏貴而唔係扮抵', () => {
+  const rows = [...comps([5000, 5100, 5200, 4900, 5300, 5150]), ...venueComps([20000, 21000], '東京')];
+  const l = listing({ price: 20000, title: '青木陽菜 直筆サイン入りチェキ 東京限定' });
+  const r = judge(l, rows, watch);
+  assert.ok(!r.basis.startsWith('venue-'), `得 2 件同場次唔應該用場次群，拎到 ${r.basis}`);
+  assert.ok(['pricey', 'absurd'].includes(r.verdict), `拎到 ${r.verdict}`);
+});
+
 t('用咗雜牌對比群就要老實標明', () => {
   const rows = comps([1000, 2000, 3000, 8000, 20000, 40000], '青木陽菜 生写真 まとめ');
   const r = judge(listing(), rows, watch);

@@ -1,14 +1,19 @@
-// 排程器。兩個完全分開嘅節奏：
+// 排程器。三個完全分開嘅節奏：
 //   1. 新貨——每條 watch 自己一個遞歸 setTimeout（唔用 setInterval：
 //      一次跑得慢過個間隔就會疊，越疊越多最後一齊轟個站）
 //   2. 成交價——一條慢隊列，5 分鐘先處理一條 stale query，
 //      永遠唔會同新貨巡邏爭頻寬
+//   3. AI 分類——5 分鐘一 tick，追住標未分類嘅成交（venue，比價要用）；
+//      叫嘅係 .68 部本地機，唔喺度／慢都唔可以拖住上面兩條
 import { watchListEnabled, watchGet, compRunGet, pruneOld } from './db.js';
 import { sweepWatch, harvestComps, compQueryOf, reportSweepHealth } from './ingest.js';
 import { checkSourceHealth } from './health.js';
+import { classifyPending } from './pricing/classify.js';
 
 const COMP_STALE_MS = 12 * 60 * 60 * 1000;  // 成交價 12 個鐘重收一次
 const COMP_TICK_MS = 5 * 60 * 1000;         // 每 5 分鐘至多處理一條
+const CLASSIFY_TICK_MS = 5 * 60 * 1000;     // AI 分類自己一條時間線，唔同收成交價爭
+const CLASSIFY_BATCH = 60;                  // 27B 20 條 ~23s，一 tick 最多三批 ≈ 70s
 const HEALTH_TICK_MS = 30 * 60 * 1000;
 const PRUNE_TICK_MS = 24 * 60 * 60 * 1000;
 
@@ -103,15 +108,34 @@ async function compTick() {
   }
 }
 
+// AI 標題分類（venue）。同 compTick 分開一條時間線：
+//   1. 分類要叫 .68 部機，慢／唔喺度／hang 都唔應該拖住收成交價
+//   2. 未分類嘅 comps 冇 venue，verdict.js 就當佢係普通貨——退化係靜嘅，
+//      所以寧願行密啲（5 分鐘一 tick），追得返新收嘅貨
+let classifyBusy = false;
+async function classifyTick() {
+  if (stopped || classifyBusy) return;
+  classifyBusy = true;
+  try {
+    await classifyPending({ limit: CLASSIFY_BATCH });
+  } catch (err) {
+    console.error('[scheduler] AI 分類出錯：', err.message);
+  } finally {
+    classifyBusy = false;
+  }
+}
+
 export function startScheduler() {
   stopped = false;
   rebuildWatchTimers();
 
   const compTimer = setInterval(compTick, COMP_TICK_MS);
   setTimeout(compTick, 30_000);   // 起機半分鐘後開頭一條
+  const classifyTimer = setInterval(classifyTick, CLASSIFY_TICK_MS);
+  setTimeout(classifyTick, 90_000);   // 錯開 compTick，唔好起機一齊衝
   const healthTimer = setInterval(checkSourceHealth, HEALTH_TICK_MS);
   const pruneTimer = setInterval(pruneOld, PRUNE_TICK_MS);
-  for (const t of [compTimer, healthTimer, pruneTimer]) t.unref?.();
+  for (const t of [compTimer, classifyTimer, healthTimer, pruneTimer]) t.unref?.();
 
   console.log('[scheduler] 起咗：新貨按每條追蹤自己嘅間隔，成交價 5 分鐘一格慢慢收');
 }
