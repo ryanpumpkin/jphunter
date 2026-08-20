@@ -152,7 +152,10 @@ export default function WatchesPage({ nav }) {
 // 冇呢個提示嘅話，兩個情況喺 UI 上面完全一模一樣（都係「近 24 小時 0 件」）。
 function QuietNote({ w }) {
   if (!w.enabled || !w.last_run_at) return null;
-  const hrs = w.last_hit_at ? (Date.now() - Date.parse(w.last_hit_at.replace(' ', 'T') + 'Z')) / 3600000 : null;
+  // 兩種格式都收：SQLite 'YYYY-MM-DD HH:MM:SS'（UTC，要補 Z）同 ISO（本身有 Z）。
+  // 一律補 Z 會整出 '…ZZ' → NaN，跟住咩都唔顯示——同 ListingCard 用同一招。
+  const t = w.last_hit_at && Date.parse(w.last_hit_at.includes('T') ? w.last_hit_at : w.last_hit_at.replace(' ', 'T') + 'Z');
+  const hrs = Number.isFinite(t) ? (Date.now() - t) / 3600000 : null;
   const quiet = hrs == null ? null : hrs < 1 ? '啱啱先有' : `${Math.floor(hrs)} 個鐘冇`;
   const seen = w.last_seen_n;
 
