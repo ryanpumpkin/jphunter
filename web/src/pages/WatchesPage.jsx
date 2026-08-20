@@ -138,10 +138,37 @@ export default function WatchesPage({ nav }) {
                 {' '}· 每 {Math.round(w.interval_s / 60)} 分鐘巡一次
                 {w.exclude && <> · 排除：{w.exclude}</>}
               </div>
+              <QuietNote w={w} />
             </div>
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+// 「點解咁耐冇新貨？」——最常問嘅問題。分開兩個 case 講清楚：
+//   見到貨但冇新嘅＝靜市，正常；一件都見唔到＝抓唔到嘢，要查。
+// 冇呢個提示嘅話，兩個情況喺 UI 上面完全一模一樣（都係「近 24 小時 0 件」）。
+function QuietNote({ w }) {
+  if (!w.enabled || !w.last_run_at) return null;
+  const hrs = w.last_hit_at ? (Date.now() - Date.parse(w.last_hit_at.replace(' ', 'T') + 'Z')) / 3600000 : null;
+  const quiet = hrs == null ? null : hrs < 1 ? '啱啱先有' : `${Math.floor(hrs)} 個鐘冇`;
+  const seen = w.last_seen_n;
+
+  if (seen === 0) {
+    return (
+      <div className="mt-1 text-xs text-amber-300">
+        ⚠️ 上轉巡查一件在售都見唔到——可能俾人擋咗或者個站改咗版。
+        用 <code className="text-amber-200">node server/probe.js --all "{w.keyword}"</code> 查邊層死咗。
+      </div>
+    );
+  }
+  if (seen == null) return null;
+  return (
+    <div className="mt-1 text-xs text-white/35">
+      ✅ 巡緊，上轉見到 <b className="text-white/55">{seen}</b> 件在售
+      {quiet && <> · {quiet}新貨{hrs >= 12 && '（冇人上新嘢，唔係壞咗）'}</>}
     </div>
   );
 }
